@@ -24,7 +24,7 @@ class LiveClass {
       'title': title,
       'description': description,
       'meetingUrl': meetingUrl,
-      'scheduled_at': Timestamp.fromDate(scheduledAt),
+      'scheduled_at': scheduledAt.toIso8601String(),
       'instructor_name': instructorName,
       'course_id': courseId,
     };

@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/global_app_bar.dart';
+import '../core/app_theme.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -21,15 +23,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   XFile? _pickedFile;
   bool _isLoading = false;
 
-  final List<String> _avatarPresets = [
-    "https://api.dicebear.com/7.x/notionists/png?seed=Felix",
-    "https://api.dicebear.com/7.x/notionists/png?seed=Aneka",
-    "https://api.dicebear.com/7.x/notionists/png?seed=Milo",
-    "https://api.dicebear.com/7.x/bottts/png?seed=Techie",
-    "https://api.dicebear.com/7.x/avataaars/png?seed=Student",
-    "https://api.dicebear.com/7.x/avataaars/png?seed=Coder",
-    "https://api.dicebear.com/7.x/initials/png?seed=AB",
-  ];
+  final List<String> _avatarPresets = AuthService.defaultAvatars;
 
   @override
   void initState() {
@@ -136,15 +130,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         backgroundImage = FileImage(File(_pickedFile!.path));
       }
     } else if (_photoUrlController.text.isNotEmpty) {
-      if (_photoUrlController.text.startsWith('http')) {
+      if (_photoUrlController.text.startsWith('http') || kIsWeb) {
         backgroundImage = NetworkImage(_photoUrlController.text);
       } else {
         backgroundImage = FileImage(File(_photoUrlController.text));
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text("Edit Profile")),
+    final isDark = theme.brightness == Brightness.dark;
+
+    return AppTheme.backgroundScaffold(
+      isDark: isDark,
+      appBar: const GlobalAppBar(title: "Edit Profile", transparent: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(

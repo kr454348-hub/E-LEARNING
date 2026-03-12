@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme_provider.dart';
 import '../services/auth_service.dart';
+import '../widgets/global_app_bar.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -12,7 +13,7 @@ class SettingsScreen extends StatelessWidget {
     final authService = Provider.of<AuthService>(context, listen: false);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Settings")),
+      appBar: const GlobalAppBar(title: "Settings"),
       body: ListView(
         children: [
           SwitchListTile(

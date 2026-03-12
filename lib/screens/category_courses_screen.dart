@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:elearning_app/models/course.dart';
 import 'package:elearning_app/screens/course_detail_screen.dart';
 import 'package:elearning_app/services/database_service.dart';
+import '../widgets/global_app_bar.dart';
+import '../core/app_theme.dart';
 
 class CategoryCoursesScreen extends StatelessWidget {
   final String categoryName;
@@ -36,13 +38,12 @@ class CategoryCoursesScreen extends StatelessWidget {
         .map((l) => l['name'] as String)
         .toList();
 
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text("$categoryName Courses"),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return AppTheme.backgroundScaffold(
+      isDark: isDark,
+      appBar: GlobalAppBar(title: "$categoryName Courses", transparent: true),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -194,12 +195,32 @@ class CategoryCoursesScreen extends StatelessWidget {
                         ),
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4.0),
-                          child: Text(
-                            "${course.lessons.length} Lessons",
-                            style: TextStyle(
-                              color: Theme.of(context).primaryColor,
-                              fontWeight: FontWeight.w500,
-                            ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.star,
+                                color: Colors.amber,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                course.rating > 0
+                                    ? "${course.rating.toStringAsFixed(1)} (${course.ratingCount})"
+                                    : "New",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                "${course.lessons.length} Lessons",
+                                style: TextStyle(
+                                  color: Theme.of(context).primaryColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         trailing: const Icon(

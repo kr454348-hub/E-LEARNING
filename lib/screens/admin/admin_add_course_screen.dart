@@ -4,6 +4,8 @@ import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import 'package:provider/provider.dart';
 import 'admin_edit_quiz_screen.dart';
+import '../../widgets/global_app_bar.dart';
+import '../../core/app_constants.dart';
 
 class AdminAddCourseScreen extends StatefulWidget {
   final Course? course; // If null, adding new.
@@ -18,6 +20,7 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
   late TextEditingController _titleController;
   late TextEditingController _descController;
   late TextEditingController _categoryController;
+  String? _selectedCategory;
   late TextEditingController _thumbnailController;
   late TextEditingController _videoUrlController;
   bool _isLoading = false;
@@ -35,6 +38,7 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
     _categoryController = TextEditingController(
       text: widget.course?.category ?? '',
     );
+    _selectedCategory = widget.course?.category;
     _thumbnailController = TextEditingController(
       text: widget.course?.thumbnail ?? '',
     );
@@ -91,46 +95,54 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
         'description': _descController.text,
         'category': _categoryController.text,
         'thumbnail': _thumbnailController.text,
-        'videoUrl': _videoUrlController.text,
-        'has_lessons': _lessons.isNotEmpty,
+        'video_url': _videoUrlController.text, // Fix field name to match model
+        'chapters': _lessons.isEmpty
+            ? (widget.course?.chapters.map((e) => e.toMap()).toList() ?? [])
+            : [
+                Chapter(
+                  id: 'chapter_0',
+                  title: 'Course Content',
+                  order: 0,
+                  lectures: _lessons
+                      .asMap()
+                      .entries
+                      .map(
+                        (e) => Lecture(
+                          id: 'lec_${e.key}',
+                          title: e.value.title,
+                          videoUrl: e.value.videoUrl,
+                          duration: e.value.duration,
+                          order: e.key,
+                        ),
+                      )
+                      .toList(),
+                ).toMap(),
+              ],
+        'questions': _questions.map((e) => e.toMap()).toList(),
         'has_questions': _questions.isNotEmpty,
-        'authorId': widget.course?.authorId.isNotEmpty == true
+        'author_id': widget.course?.authorId.isNotEmpty == true
             ? widget.course!.authorId
             : (user?.uid ?? ''),
-        'authorName': widget.course?.authorName.isNotEmpty == true
+        'author_name': widget.course?.authorName.isNotEmpty == true
             ? widget.course!.authorName
             : (user?.name ?? 'Admin'),
+        'level': widget.course?.level ?? 'Beginner',
       };
 
       setState(() => _isLoading = true);
       try {
-        // 1. Save Course Metadata
         if (widget.course == null) {
           await db.insert('courses', courseData, docId: courseId);
         } else {
           await db.update('courses', courseData, docId: courseId);
         }
 
-        // 2. Save Lessons (Sub-collection)
-        // For simplicity/safety, we'll use indexed IDs
-        // In a production app, we might want to delete removed lessons
-        for (int i = 0; i < _lessons.length; i++) {
-          await db.insert(
-            'courses/$courseId/lessons',
-            _lessons[i].toMap(),
-            docId: 'lesson_$i',
-          );
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Course Saved!')));
         }
-
-        // 3. Save Questions (Sub-collection)
-        for (int i = 0; i < _questions.length; i++) {
-          await db.insert(
-            'courses/$courseId/questions',
-            _questions[i].toMap(),
-            docId: 'question_$i',
-          );
-        }
-        if (mounted) Navigator.pop(context);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -138,7 +150,9 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
           ).showSnackBar(SnackBar(content: Text('Operation Failed: $e')));
         }
       } finally {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }
@@ -296,8 +310,8 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.course == null ? 'Add Course' : 'Edit Course'),
+      appBar: GlobalAppBar(
+        title: widget.course == null ? 'Add Course' : 'Edit Course',
       ),
       body: Form(
         key: _formKey,
@@ -315,9 +329,25 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
                 decoration: const InputDecoration(labelText: 'Description'),
                 maxLines: 3,
               ),
-              TextFormField(
-                controller: _categoryController,
+              DropdownButtonFormField<String>(
+                initialValue: AppCategories.mainCategories
+                        .any((c) => c['name'] == _selectedCategory)
+                    ? _selectedCategory
+                    : null,
                 decoration: const InputDecoration(labelText: 'Category'),
+                items: AppCategories.mainCategories
+                    .map((c) => DropdownMenuItem<String>(
+                          value: c['name'] as String,
+                          child: Text(c['name'] as String),
+                        ))
+                    .toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedCategory = val;
+                    _categoryController.text = val ?? '';
+                  });
+                },
+                validator: (v) => (v == null || v.isEmpty) ? 'Please select a category' : null,
               ),
               TextFormField(
                 controller: _thumbnailController,

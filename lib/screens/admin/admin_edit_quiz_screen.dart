@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/course.dart';
+import '../../widgets/global_app_bar.dart';
 
 class AdminEditQuizScreen extends StatefulWidget {
   final List<Question> initialQuestions;
@@ -121,8 +122,9 @@ class _AdminEditQuizScreenState extends State<AdminEditQuizScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Manage Quiz"),
+      appBar: GlobalAppBar(
+        title: "Manage Quiz",
+        centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.check),
@@ -132,6 +134,7 @@ class _AdminEditQuizScreenState extends State<AdminEditQuizScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: _addQuestion,
         child: const Icon(Icons.add),
       ),

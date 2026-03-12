@@ -11,6 +11,8 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'database_service.dart';
@@ -18,7 +20,11 @@ import 'database_service.dart';
 class AuthService with ChangeNotifier {
   // ─── Firebase & Google instances ───
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: kIsWeb
+        ? '215641201728-oggef515do9blpshjbrf1cs5jrhqbdip.apps.googleusercontent.com'
+        : null,
+  );
   final DatabaseService _db = DatabaseService();
 
   // ─── State ───
@@ -37,6 +43,21 @@ class AuthService with ChangeNotifier {
   final String _userCacheKey = 'cached_user_profile';
   int _syncIteration = 0; // Prevents stale callbacks after sign-out
   StreamSubscription<Map<String, dynamic>?>? _userSubscription;
+
+  // ─── Default Avatars ───
+  static final List<String> defaultAvatars = [
+    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+    'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&w=150&q=80',
+    'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=150&q=80',
+    'https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=150&q=80',
+    'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=150&q=80',
+  ];
+
+  String getRandomAvatar() {
+    final random = DateTime.now().millisecond % defaultAvatars.length;
+    return defaultAvatars[random];
+  }
 
   // ──────────────────────────────────────────────────────────
   // CONSTRUCTOR — listens to Firebase auth state changes
@@ -79,34 +100,49 @@ class AuthService with ChangeNotifier {
       await _loadCachedProfile(firebaseUser.uid);
 
       // Step 2: Start real-time Firestore listener
-      // This will update the UI with fresh data when available
-      await _startUserStream(firebaseUser);
+      // We don't await this because we want to let the UI render if cache was found
+      _startUserStream(firebaseUser);
+
+      // Safety fallback: if no cache and stream doesn't emit in 8s, stop loading
+      // (This prevents "stuck" login screens on poor connections)
+      Future.delayed(const Duration(seconds: 8), () {
+        if (_isLoading && _userModel == null) {
+          debugPrint("⚠️ [Auth] Safety timeout: Login taking too long");
+          _isLoading = false;
+          notifyListeners();
+        }
+      });
     } catch (e) {
       debugPrint("🔴 [Auth] Setup Error: $e");
-      // DO NOT force sign out here. Allow retry or offline usage.
       _isLoading = false;
       notifyListeners();
     }
   }
 
   /// Try loading user profile from SharedPreferences cache
-  Future<void> _loadCachedProfile(String uid) async {
-    // If we already have memory state, don't overwrite with old cache
-    if (_userModel != null && _userModel!.uid == uid) return;
+  /// Returns true if profile was successfully loaded
+  Future<bool> _loadCachedProfile(String uid) async {
+    // If we already have memory state, success
+    if (_userModel != null && _userModel!.uid == uid) return true;
 
     final prefs = await SharedPreferences.getInstance();
-    if (!prefs.containsKey(_userCacheKey)) return;
+    if (!prefs.containsKey(_userCacheKey)) return false;
 
     try {
       final cachedData = jsonDecode(prefs.getString(_userCacheKey)!);
       if (cachedData['uid'] == uid || cachedData['id'] == uid) {
         _userModel = UserModel.fromMap(cachedData, uid);
         debugPrint("⚡ [Auth] Profile loaded from cache");
+        // IMPORTANT: If we found cache, we can stop "loading" immediately
+        // The stream will update us later if there are changes.
+        _isLoading = false;
         notifyListeners();
+        return true;
       }
     } catch (e) {
       debugPrint("⚠️ [Auth] Cache read error: $e");
     }
+    return false;
   }
 
   // ──────────────────────────────────────────────────────────
@@ -185,6 +221,7 @@ class AuthService with ChangeNotifier {
         uid: credential.user!.uid,
         email: email,
         name: name,
+        photoUrl: getRandomAvatar(),
         // If user is admin, force admin role.
         // Otherwise, use the selected role directly (no pending state requested)
         role: isAdmin ? 'admin' : selectedRole.toLowerCase(),
@@ -341,6 +378,21 @@ class AuthService with ChangeNotifier {
             photoUrl: photoUrl ?? _userModel!.photoUrl,
             isBanned: _userModel!.isBanned,
           );
+          // Update cached profile so other devices / restarts see change immediately
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_userCacheKey, jsonEncode(_userModel!.toMap()));
+
+          // Clear in-memory image cache to ensure new avatar is fetched
+          try {
+            imageCache.clear();
+            // Remove from disk cache used by cached_network_image
+            if (photoUrl != null && photoUrl.isNotEmpty) {
+              try {
+                await CachedNetworkImage.evictFromCache(photoUrl);
+              } catch (_) {}
+            }
+          } catch (_) {}
+
           notifyListeners();
         }
       }
@@ -379,6 +431,24 @@ class AuthService with ChangeNotifier {
               );
 
               debugPrint("✅ [Auth] Profile synced (${_userModel!.role})");
+
+              // 🛡️ MASTER ADMIN PROTECTION
+              // Ensures the main admin account always keeps its privileges,
+              // even if the database record was accidentally modified.
+              if (firebaseUser.email == 'admin@admin.com' &&
+                  _userModel!.role != 'admin') {
+                debugPrint(
+                  "🛡️ [Auth] Master Admin detected with wrong role (${_userModel!.role}). Auto-promoting...",
+                );
+                // Non-blocking update to Firestore
+                promoteToAdmin(firebaseUser.uid).catchError((e) {
+                  debugPrint(
+                    "🔴 [Auth] Failed to auto-promote master admin: $e",
+                  );
+                });
+                // Note: The stream listener will naturally fire again after the update.
+              }
+
               _isLoading = false;
               notifyListeners();
             } else {
@@ -389,30 +459,43 @@ class AuthService with ChangeNotifier {
                 "⚠️ [Auth] Profile doc missing for ${firebaseUser.uid}",
               );
 
-              // If this is the built-in master admin account, attempt to
-              // create a minimal admin profile automatically so the app
-              // doesn't get stuck on the loading screen while waiting for
-              // a Firestore document that doesn't exist yet.
+              // AUTO-CREATE MISSING PROFILE
+              // If the document is missing but the user is authenticated (e.g. Google login),
+              // we create a default student profile so the app doesn't stay stuck.
               try {
                 final email = firebaseUser.email ?? '';
-                if (email == 'admin@admin.com') {
-                  debugPrint('🔧 [Auth] Creating missing admin profile for $email');
-                  final Map<String, dynamic> adminProfile = {
-                    'id': firebaseUser.uid,
-                    'email': email,
-                    'name': firebaseUser.displayName ?? 'Administrator',
-                    'photo_url': firebaseUser.photoURL ?? '',
-                    'role': 'admin',
-                    'requested_role': null,
-                    'is_banned': false,
-                  };
-                  await _db.insert('users', adminProfile, docId: firebaseUser.uid);
-                  debugPrint('✅ [Auth] Admin profile created: ${firebaseUser.uid}');
-                  return; // Wait for the stream to emit the newly created doc
-                }
+                final isDefaultAdmin = (email == 'admin@admin.com');
+
+                debugPrint(
+                  '🔧 [Auth] Auto-creating profile for $email as ${isDefaultAdmin ? 'admin' : 'student'}',
+                );
+
+                final Map<String, dynamic> newProfile = {
+                  'id': firebaseUser.uid,
+                  'email': email,
+                  'name': firebaseUser.displayName ?? (email.split('@').first),
+                  'photo_url': firebaseUser.photoURL ?? getRandomAvatar(),
+                  'role': isDefaultAdmin ? 'admin' : 'student',
+                  'requested_role': null,
+                  'is_banned': false,
+                  'created_at': DateTime.now().toIso8601String(),
+                };
+
+                await _db.insert('users', newProfile, docId: firebaseUser.uid);
+                debugPrint('✅ [Auth] Default profile created successfully');
+                // The stream will naturally emit this new document in the next tick
+                return;
               } catch (e) {
-                debugPrint('🔴 [Auth] Failed auto-create admin profile: $e');
-                // Do not sign out — allow manual retry and show error elsewhere
+                debugPrint('🔴 [Auth] Failed auto-create profile: $e');
+                // Fallback: set a minimal local model to avoid stuck UI if DB write fails
+                _userModel = UserModel(
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email ?? '',
+                  name: firebaseUser.displayName ?? 'User',
+                  role: 'student',
+                );
+                _isLoading = false;
+                notifyListeners();
               }
 
               // Do NOT sign out automatically. Flaky networks can cause this.

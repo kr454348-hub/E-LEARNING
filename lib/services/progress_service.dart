@@ -17,7 +17,7 @@ class ProgressService {
   Future<void> saveProgress({
     required String userId,
     required String courseId,
-    required int lastLessonIndex,
+    required String lastLessonId,
     List<String>? completedLessonIds,
     double? percentComplete,
   }) async {
@@ -25,7 +25,7 @@ class ProgressService {
       final Map<String, dynamic> data = {
         'user_id': userId,
         'course_id': courseId,
-        'last_lesson_id': lastLessonIndex.toString(),
+        'last_lesson_id': lastLessonId,
         'updated_at': DateTime.now().toIso8601String(),
       };
 
@@ -42,7 +42,7 @@ class ProgressService {
       await _db.insert('user_progress', data, docId: docId);
 
       debugPrint(
-        "Progress saved to Firestore for course $courseId: Index $lastLessonIndex",
+        "Progress saved to Firestore for course $courseId: ID $lastLessonId",
       );
     } catch (e) {
       debugPrint("Error saving Firestore progress: $e");

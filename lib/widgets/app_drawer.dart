@@ -58,13 +58,17 @@ class AppDrawer extends StatelessWidget {
                   Icons.person_outline,
                   "Edit Profile",
                   () {
-                    Navigator.pop(context); // Close drawer
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const EditProfileScreen(),
-                      ),
-                    );
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) {
+                        Navigator.pop(context); // Close drawer
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const EditProfileScreen(),
+                          ),
+                        );
+                      }
+                    });
                   },
                 ),
                 _buildDrawerItem(context, Icons.bar_chart, "My Progress", () {
@@ -140,7 +144,9 @@ class AppDrawer extends StatelessWidget {
                   Icons.settings_outlined,
                   "Settings",
                   () {
-                    Navigator.pop(context);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) Navigator.pop(context);
+                    });
                   },
                 ),
                 if (user?.role == 'admin')

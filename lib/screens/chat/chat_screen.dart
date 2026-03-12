@@ -1,17 +1,15 @@
-// ──────────────────────────────────────────────────────────
-// ChatScreen — Real-time 1-to-1 messaging
-// ──────────────────────────────────────────────────────────
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/message.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
+import '../../widgets/global_app_bar.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
   final String otherUserName;
   final String otherUserRole;
+
   const ChatScreen({
     super.key,
     required this.roomId,
@@ -27,12 +25,13 @@ class _ChatScreenState extends State<ChatScreen> {
   final ChatService _chatService = ChatService();
   final TextEditingController _messageCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  late Stream<List<Message>> _messageStream;
   bool _isSending = false;
 
   @override
   void initState() {
     super.initState();
-    // Mark messages as read
+    _messageStream = _chatService.getMessages(widget.roomId);
     final user = Provider.of<AuthService>(context, listen: false).currentUser;
     if (user != null) {
       _chatService.markAsRead(widget.roomId, user.uid);
@@ -55,9 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final message = Message(
         id: '',
         senderId: firebaseUser.uid,
-        senderName: userModel.name.isNotEmpty
-            ? userModel.name
-            : userModel.email,
+        senderName: userModel.name.isNotEmpty ? userModel.name : userModel.email,
         senderRole: userModel.role,
         text: text,
         timestamp: DateTime.now(),
@@ -66,9 +63,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await _chatService.sendMessage(widget.roomId, message);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -89,50 +84,49 @@ class _ChatScreenState extends State<ChatScreen> {
     final currentUserId = user?.uid ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: _roleColor(widget.otherUserRole),
-              child: Text(
-                widget.otherUserName.isNotEmpty
-                    ? widget.otherUserName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: const GlobalAppBar(
+        title: null,
+        leading: BackButton(),
+      ),
+      body: Column(
+        children: [
+          // Chat header below the global app bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: theme.scaffoldBackgroundColor,
+            child: Row(
               children: [
-                Text(
-                  widget.otherUserName,
-                  style: const TextStyle(fontSize: 16),
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: _roleColor(widget.otherUserRole),
+                  child: Text(
+                    widget.otherUserName.isNotEmpty ? widget.otherUserName[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                Text(
-                  widget.otherUserRole.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: theme.colorScheme.outline,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(widget.otherUserName, style: const TextStyle(fontSize: 16), overflow: TextOverflow.ellipsis),
+                      Text(widget.otherUserRole.toUpperCase(), style: TextStyle(fontSize: 11, color: theme.colorScheme.outline)),
+                    ],
                   ),
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-      body: Column(
-        children: [
-          // ─── Messages List ───
+          ),
+
+          // Messages list
           Expanded(
             child: StreamBuilder<List<Message>>(
-              stream: _chatService.getMessages(widget.roomId),
+              stream: _messageStream,
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Chat Error: ${snapshot.error}'));
+                }
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -143,18 +137,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 48,
-                          color: theme.colorScheme.outline,
-                        ),
+                        Icon(Icons.chat_bubble_outline, size: 48, color: theme.colorScheme.outline),
                         const SizedBox(height: 12),
-                        Text(
-                          'Start the conversation!',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
+                        Text('Start the conversation!', style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.outline)),
                       ],
                     ),
                   );
@@ -163,10 +148,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 return ListView.builder(
                   controller: _scrollCtrl,
                   reverse: true,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
@@ -178,7 +160,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
 
-          // ─── Input Bar ───
+          // Input bar
           Container(
             decoration: BoxDecoration(
               color: theme.colorScheme.surface,
@@ -199,16 +181,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       controller: _messageCtrl,
                       decoration: InputDecoration(
                         hintText: 'Type a message...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                         filled: true,
                         fillColor: theme.colorScheme.surfaceContainerHighest,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                       ),
                       textCapitalization: TextCapitalization.sentences,
                       onSubmitted: (_) => _sendMessage(),
@@ -218,11 +194,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   FloatingActionButton.small(
                     onPressed: _isSending ? null : _sendMessage,
                     child: _isSending
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.send),
                   ),
                 ],
@@ -238,16 +210,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: EdgeInsets.only(
-          bottom: 8,
-          left: isMe ? 60 : 0,
-          right: isMe ? 0 : 60,
-        ),
+        margin: EdgeInsets.only(bottom: 8, left: isMe ? 60 : 0, right: isMe ? 0 : 60),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isMe
-              ? theme.colorScheme.primary
-              : theme.colorScheme.surfaceContainerHighest,
+          color: isMe ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
@@ -256,9 +222,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         child: Column(
-          crossAxisAlignment: isMe
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             if (!isMe)
               Padding(
@@ -266,57 +230,19 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      msg.senderName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: _roleColor(msg.senderRole),
-                      ),
-                    ),
+                    Text(msg.senderName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _roleColor(msg.senderRole))),
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _roleColor(
-                          msg.senderRole,
-                        ).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        msg.senderRole.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: _roleColor(msg.senderRole),
-                        ),
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(color: _roleColor(msg.senderRole).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                      child: Text(msg.senderRole.toUpperCase(), style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: _roleColor(msg.senderRole))),
                     ),
                   ],
                 ),
               ),
-            Text(
-              msg.text,
-              style: TextStyle(
-                color: isMe
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurface,
-                fontSize: 15,
-              ),
-            ),
+            Text(msg.text, style: TextStyle(color: isMe ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface, fontSize: 15)),
             const SizedBox(height: 4),
-            Text(
-              _formatTime(msg.timestamp),
-              style: TextStyle(
-                fontSize: 11,
-                color: isMe
-                    ? theme.colorScheme.onPrimary.withValues(alpha: 0.7)
-                    : theme.colorScheme.outline,
-              ),
-            ),
+            Text(_formatTime(msg.timestamp), style: TextStyle(fontSize: 11, color: isMe ? theme.colorScheme.onPrimary.withValues(alpha: 0.7) : theme.colorScheme.outline)),
           ],
         ),
       ),

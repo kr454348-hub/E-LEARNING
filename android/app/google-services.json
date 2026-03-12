@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "215641201728",
+    "firebase_url": "https://elearning-app-e957b-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "elearning-app-e957b",
     "storage_bucket": "elearning-app-e957b.firebasestorage.app"
   },
@@ -12,7 +13,20 @@
           "package_name": "com.example.elearning"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "215641201728-d8s9iepsipuaj188a235i4j18ot2lgji.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.elearning",
+            "certificate_hash": "bd40da429d3889060301b2878a0f21f8828da305"
+          }
+        },
+        {
+          "client_id": "215641201728-oggef515do9blpshjbrf1cs5jrhqbdip.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyByQ49sJXuxv1S4P1TGwThjHNZfeaEilZU"
@@ -20,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "215641201728-aru7isb3crf4pgrs0p1mtlb22v9o3phe.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

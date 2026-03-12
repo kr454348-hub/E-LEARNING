@@ -32,14 +32,21 @@ class Message {
       senderRole: (map['sender_role'] ?? map['senderRole'] ?? 'student')
           .toString(),
       text: map['text'] ?? '',
-      timestamp: map['timestamp'] != null
-          ? DateTime.parse(map['timestamp'])
-          : (map['created_at'] != null
-                ? DateTime.parse(map['created_at'])
-                : DateTime.now()),
+      timestamp: _parseDateTime(map['timestamp'] ?? map['created_at']),
       type: map['type'] ?? 'text',
       readBy: List<String>.from(map['read_by'] ?? map['readBy'] ?? []),
     );
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is String) return DateTime.parse(value);
+    if (value is DateTime) return value;
+    // Check for Firestore Timestamp
+    if (value.runtimeType.toString().contains('Timestamp')) {
+      return (value as dynamic).toDate();
+    }
+    return DateTime.now();
   }
 
   Map<String, dynamic> toMap() {

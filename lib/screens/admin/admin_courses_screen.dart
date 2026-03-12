@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
+import '../../widgets/global_app_bar.dart';
 import '../../models/course.dart';
 import '../course_detail_screen.dart';
 import 'admin_add_course_screen.dart';
@@ -13,8 +14,9 @@ class AdminCoursesScreen extends StatelessWidget {
     final db = DatabaseService();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Manage Courses')),
+      appBar: const GlobalAppBar(title: 'Manage Courses'),
       floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const AdminAddCourseScreen()),

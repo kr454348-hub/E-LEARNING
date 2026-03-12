@@ -171,6 +171,35 @@ class CacheService {
     }
   }
 
+  // ─── LIVE CLASSES ───
+
+  static const String _liveClassesKey = 'cached_live_classes';
+
+  /// Cache live class data locally for instant loading
+  Future<void> cacheLiveClasses(List<Map<String, dynamic>> classes) async {
+    try {
+      final p = await prefs;
+      await p.setString(_liveClassesKey, jsonEncode(classes));
+      await _setTimestamp(_liveClassesKey);
+      debugPrint('💾 [CacheService] Cached ${classes.length} live classes');
+    } catch (e) {
+      debugPrint('⚠️ [CacheService] Error caching live classes: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>?> getCachedLiveClasses() async {
+    try {
+      final p = await prefs;
+      final data = p.getString(_liveClassesKey);
+      if (data == null) return null;
+      final list = jsonDecode(data) as List;
+      return list.map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (e) {
+      debugPrint('⚠️ [CacheService] Error reading cached live classes: $e');
+      return null;
+    }
+  }
+
   // ─── CLEAR ───
 
   Future<void> clearAllCaches() async {

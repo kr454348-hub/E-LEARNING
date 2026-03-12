@@ -1,5 +1,6 @@
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/course.dart';
@@ -8,6 +9,7 @@ import '../services/auth_service.dart';
 import 'dart:io';
 import '../services/database_service.dart';
 import 'admin/admin_add_course_screen.dart';
+import '../widgets/global_app_bar.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -43,8 +45,20 @@ class _MyContentScreenState extends State<MyContentScreen>
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("My Contributions"),
+      appBar: GlobalAppBar(
+        title: "My Contributions",
+        leading: Navigator.canPop(context)
+            ? const BackButton()
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/',
+                    (route) => false,
+                  );
+                },
+              ),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -55,9 +69,23 @@ class _MyContentScreenState extends State<MyContentScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [_buildMyCoursesList(user.uid), _buildMyNotesList(user.uid)],
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: _buildMyCoursesList(user.uid),
+            ),
+          ),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: _buildMyNotesList(user.uid),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: () {
           if (_tabController.index == 0) {
             Navigator.push(
@@ -350,7 +378,7 @@ class _MyContentScreenState extends State<MyContentScreen>
                                       if (await canLaunchUrl(uri)) {
                                         await launchUrl(uri);
                                       }
-                                    } else {
+                                    } else if (!kIsWeb) {
                                       // Local file
                                       final file = File(pdfPath);
                                       if (await file.exists()) {
@@ -599,7 +627,8 @@ class _MyContentScreenState extends State<MyContentScreen>
                           String? finalPdfPath = selectedPdfPath;
 
                           // If it's a new file (not starting with app docs dir), copy it
-                          if (selectedPdfPath != null &&
+                          if (!kIsWeb &&
+                              selectedPdfPath != null &&
                               !selectedPdfPath!.contains('app_flutter')) {
                             try {
                               final directory =

@@ -28,11 +28,14 @@ import 'screens/teacher/teacher_dashboard_screen.dart';
 import 'services/auth_service.dart';
 import 'services/seed_courses.dart';
 import 'core/theme_provider.dart';
+import 'core/app_theme.dart'; // [NEW] Import AppTheme
 import 'firebase_options.dart';
 
 // ──────────────────────────────────────────────────────────
 // ENTRY POINT
 // ──────────────────────────────────────────────────────────
+late final Future<void> _firebaseInit;
+
 Future<void> main() async {
   // Ensure Flutter widgets binding is initialized before Firebase
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,23 +50,87 @@ Future<void> main() async {
     return true; // Handled — prevent crash
   };
 
+  // ─── ERROR UI (Fallback) ───
+  // Replaces the standard red screen (or white screen in release)
+  // with a user-friendly error display.
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Material(
+        color: const Color(0xFF0F172A), // backgroundDark
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.orange),
+                const SizedBox(height: 24),
+                const Text(
+                  "Something went wrong",
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "The application encountered an unexpected error.\nTry restarting the app or check your internet.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, height: 1.5),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // This will likely trigger a rebuild of the error widget
+                    // or we can just leave it as a visual landmark.
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Try Again"),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+
   debugPrint("🚀 [Main] App Starting...");
 
   // Initialize SharedPreferences before running the app
   final prefs = await SharedPreferences.getInstance();
   final isDarkMode = prefs.getBool('isDarkMode') ?? false;
 
-  // Launch the app immediately (Firebase loads via FutureBuilder)
+  // Start Firebase initialization now that bindings are ready
+  _firebaseInit = _initializeFirebase();
+
+  // Pre-build themes to prevent GoogleFonts from hanging in the build tree
+  _initThemes();
+
+  // Launch the app (Firebase loads via FutureBuilder)
   runApp(MyApp(isDarkMode: isDarkMode));
 }
 
 // ──────────────────────────────────────────────────────────
-// FIREBASE INITIALIZATION (runs once on startup)
-// Use `late` so initialization occurs after `main()` calls
-// `WidgetsFlutterBinding.ensureInitialized()` to avoid early
-// binding access errors when Firebase initializes.
+// THEME CACHE
+// Pre-building themes to avoid hangs in the build method
 // ──────────────────────────────────────────────────────────
-final Future<void> _firebaseInit = _initializeFirebase();
+late final ThemeData _lightThemeCached;
+late final ThemeData _darkThemeCached;
+
+void _initThemes() {
+  _lightThemeCached = AppTheme.lightTheme; // [MODIFIED] Use AppTheme
+  _darkThemeCached = AppTheme.darkTheme; // [MODIFIED] Use AppTheme
+}
+
+// ──────────────────────────────────────────────────────────
+// FIREBASE INITIALIZATION (runs once on startup)
+// We declare a `late` future and start initialization from `main()`
+// after `WidgetsFlutterBinding.ensureInitialized()` to avoid
+// initializing Firebase before Flutter bindings are ready.
+// ──────────────────────────────────────────────────────────
 
 Future<void> _initializeFirebase() async {
   try {
@@ -85,8 +152,8 @@ Future<void> _initializeFirebase() async {
     // Sessions are preserved so users don't have to re-login every time.
     debugPrint("✅ [Main] Firebase ready — session preserved");
 
-    // Non-blocking seed: runs in background, never stalls UI
-    SeedCourses.seedIfEmpty();
+    // Force professional seed: ensures high-stakes curriculum (MBBS, IIT) is added
+    SeedCourses.seedAll();
   } catch (e, stack) {
     debugPrint("🔴 [Main] Firebase Init Error: $e\n$stack");
     rethrow;
@@ -178,11 +245,11 @@ class MyApp extends StatelessWidget {
                 debugShowCheckedModeBanner: false,
                 themeMode: themeProvider.themeMode,
 
-                // ─── LIGHT THEME ───
-                theme: _buildLightTheme(),
-
-                // ─── DARK THEME ───
-                darkTheme: _buildDarkTheme(),
+                // ─── CACHED THEMES ───
+                // Using pre-built themes prevents GoogleFonts from hanging
+                // during UI rebuilds.
+                theme: _lightThemeCached,
+                darkTheme: _darkThemeCached,
 
                 // Entry point: AuthWrapper decides which screen to show
                 home: const AuthWrapper(),
@@ -203,141 +270,6 @@ class MyApp extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-
-  // ─── Light Theme Configuration ───
-  ThemeData _buildLightTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF6C63FF),
-        primary: const Color(0xFF6C63FF),
-        secondary: const Color(0xFFFF6584),
-        tertiary: const Color(0xFF00C9A7),
-        surface: Colors.white,
-        brightness: Brightness.light,
-      ),
-      textTheme: GoogleFonts.poppinsTextTheme(),
-      appBarTheme: AppBarTheme(
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: const Color(0xFF6C63FF),
-        foregroundColor: Colors.white,
-        titleTextStyle: GoogleFonts.poppins(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        clipBehavior: Clip.antiAlias,
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        selectedItemColor: Color(0xFF6C63FF),
-        unselectedItemColor: Colors.grey,
-        showUnselectedLabels: true,
-        type: BottomNavigationBarType.fixed,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF6C63FF),
-          foregroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 2,
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.grey[50],
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
-        ),
-      ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: Color(0xFF6C63FF),
-        foregroundColor: Colors.white,
-      ),
-    );
-  }
-
-  // ─── Dark Theme Configuration ───
-  ThemeData _buildDarkTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF6C63FF),
-        primary: const Color(0xFF9B93FF),
-        secondary: const Color(0xFFFF8FA3),
-        tertiary: const Color(0xFF00E5C3),
-        surface: const Color(0xFF1E1E2E),
-        brightness: Brightness.dark,
-      ),
-      scaffoldBackgroundColor: const Color(0xFF121220),
-      textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
-      appBarTheme: AppBarTheme(
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: const Color(0xFF1E1E2E),
-        foregroundColor: Colors.white,
-        titleTextStyle: GoogleFonts.poppins(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 4,
-        color: const Color(0xFF252540),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        clipBehavior: Clip.antiAlias,
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: Color(0xFF1E1E2E),
-        selectedItemColor: Color(0xFF9B93FF),
-        unselectedItemColor: Colors.grey,
-        showUnselectedLabels: true,
-        type: BottomNavigationBarType.fixed,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF6C63FF),
-          foregroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 4,
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF252540),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
-        ),
-      ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: Color(0xFF6C63FF),
-        foregroundColor: Colors.white,
-      ),
     );
   }
 }
@@ -421,15 +353,15 @@ class _LoadingScreenState extends State<_LoadingScreen> {
       if (mounted) setState(() => _showManualButton = true);
     });
 
-    // Auto-timeout: if profile doesn't load in 10s, force logout
+    // Auto-timeout: if profile doesn't load in 20s, force logout
     // User requested this to prevent getting stuck on "Firebase ready"
-    Future.delayed(const Duration(seconds: 10), () {
+    Future.delayed(const Duration(seconds: 20), () {
       if (!mounted) return;
       // Only sign out if we're still stuck (model not loaded)
       final auth = Provider.of<AuthService>(context, listen: false);
       if (auth.userModel != null) return; // Already loaded, skip timeout
 
-      debugPrint("⏰ [LoadingScreen] Auto-timeout (10s). Signing out.");
+      debugPrint("⏰ [LoadingScreen] Auto-timeout (20s). Signing out.");
       auth.signOut();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

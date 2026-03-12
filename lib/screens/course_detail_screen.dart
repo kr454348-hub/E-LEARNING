@@ -14,7 +14,6 @@ import '../models/course.dart';
 import '../services/progress_service.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import '../services/cache_service.dart';
 import '../widgets/video_player_widget.dart';
 import 'chat/chat_screen.dart';
 
@@ -35,12 +34,10 @@ class CourseDetailScreen extends StatefulWidget {
 class _CourseDetailScreenState extends State<CourseDetailScreen> {
   int _currentLessonIndex = -1;
   final ProgressService _progressService = ProgressService();
-  final DatabaseService _db = DatabaseService();
-  final CacheService _cache = CacheService();
   String? _userId;
+  final GlobalKey<VideoPlayerWidgetState> _videoKey = GlobalKey<VideoPlayerWidgetState>();
 
-  List<Lesson> _lessons = [];
-  List<Question> _questions = [];
+  // Removed redundant state variables that are now derived in build()
   bool _isLoadingContent = true;
   String? _errorMessage;
 
@@ -53,67 +50,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     _userId = authService.currentUser?.uid;
 
     if (_userId != null) {
-      _loadContentAndRestore();
+      _restoreProgress();
     } else {
-      _loadContentOnly();
-    }
-  }
-
-  Future<void> _loadContentOnly() async {
-    await _loadSubCollections();
-    _initializePlayer(widget.initialLessonIndex);
-  }
-
-  Future<void> _loadContentAndRestore() async {
-    await _loadSubCollections();
-    await _restoreProgress();
-  }
-
-  Future<void> _loadSubCollections() async {
-    if (!mounted) return;
-    setState(() => _isLoadingContent = true);
-
-    final courseId = widget.course.id;
-
-    try {
-      // 1. Try loading from cache first for instant display
-      final cachedLessons = await _cache.getCachedLessons(courseId);
-      final cachedQuestions = await _cache.getCachedQuestions(courseId);
-
-      if (cachedLessons != null && cachedQuestions != null && mounted) {
-        setState(() {
-          _lessons = cachedLessons.map((e) => Lesson.fromMap(e)).toList();
-          _questions = cachedQuestions.map((e) => Question.fromMap(e)).toList();
-          _isLoadingContent = false;
-        });
-        debugPrint('⚡ [CourseDetail] Loaded from cache');
-      }
-
-      // 2. Always fetch fresh data from Firebase in background
-      final lessonsData = await _db.query(
-        'courses/$courseId/lessons',
-        orderBy: 'title ASC',
-      );
-      final questionsData = await _db.query('courses/$courseId/questions');
-
-      // 3. Cache for next time
-      await _cache.cacheLessons(courseId, lessonsData);
-      await _cache.cacheQuestions(courseId, questionsData);
-
-      if (mounted) {
-        setState(() {
-          _lessons = lessonsData.map((e) => Lesson.fromMap(e)).toList();
-          _questions = questionsData.map((e) => Question.fromMap(e)).toList();
-          _isLoadingContent = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Error loading sub-collections: $e");
-      if (mounted) setState(() => _isLoadingContent = false);
+      _initializePlayer(widget.initialLessonIndex);
+      setState(() => _isLoadingContent = false);
     }
   }
 
   Future<void> _restoreProgress() async {
+    setState(() => _isLoadingContent = true);
     // 1. Check if we were passed an initial index (e.g. from Home Screen "Continue")
     if (widget.initialLessonIndex != -1) {
       _initializePlayer(widget.initialLessonIndex);
@@ -123,19 +68,23 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     // 2. Otherwise, fetch from Firestore
     try {
       final db = DatabaseService();
+      // Query by user_id only to avoid composite index with course_id
       final response = await db.query(
         'user_progress',
-        where: 'user_id = ? AND course_id = ?',
-        whereArgs: [_userId!, widget.course.id],
-        limit: 1,
+        where: 'user_id = ?',
+        whereArgs: [_userId!],
       );
 
-      if (response.isNotEmpty) {
+      // Client-side filtering for course_id
+      final courseProgress = response.where((item) => item['course_id'] == widget.course.id);
+
+      if (courseProgress.isNotEmpty) {
         final lastIndex =
-            int.tryParse(response.first['last_lesson_id'] ?? '-1') ?? -1;
-        if (lastIndex != -1 && lastIndex < _lessons.length) {
+            int.tryParse(courseProgress.first['last_lesson_id'] ?? '-1') ?? -1;
+        if (lastIndex != -1 && lastIndex < widget.course.lessons.length) {
           if (mounted) {
             _initializePlayer(lastIndex);
+            setState(() => _isLoadingContent = false);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text("Resuming from lesson ${lastIndex + 1}")),
             );
@@ -148,7 +97,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     }
 
     // 3. Fallback to start
-    if (mounted) _initializePlayer(-1);
+    if (mounted) {
+      _initializePlayer(widget.initialLessonIndex == -1 ? -1 : widget.initialLessonIndex);
+      setState(() => _isLoadingContent = false);
+    }
   }
 
   void _initializePlayer(int index) {
@@ -157,15 +109,17 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       _currentLessonIndex = index;
       String currentUrl = index == -1
           ? widget.course.videoUrl
-          : (index < _lessons.length ? _lessons[index].videoUrl : "");
+          : (index < widget.course.lessons.length
+              ? widget.course.lessons[index].videoUrl
+              : "");
 
       _errorMessage = currentUrl.isEmpty ? "No video URL provided" : null;
     });
   }
 
-  void _playLesson(int index) {
-    String url = index >= 0 && index < _lessons.length
-        ? _lessons[index].videoUrl
+  void _playLesson(int index, List<Lesson> lessons) {
+    String url = index >= 0 && index < lessons.length
+        ? lessons[index].videoUrl
         : widget.course.videoUrl;
 
     setState(() {
@@ -173,25 +127,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       _errorMessage = url.isEmpty ? "No video URL provided" : null;
     });
 
-    if (_userId != null && index >= 0 && _lessons.isNotEmpty) {
+    if (_userId != null && index >= 0 && lessons.isNotEmpty) {
       _progressService.saveProgress(
         userId: _userId!,
         courseId: widget.course.id,
-        lastLessonIndex: index,
-        percentComplete: (index + 1) / _lessons.length,
+        lastLessonId: index.toString(),
+        percentComplete: (index + 1) / lessons.length,
       );
     }
   }
 
-  void _playNext() {
-    if (_currentLessonIndex < _lessons.length - 1) {
-      _playLesson(_currentLessonIndex + 1);
+  void _playNext(List<Lesson> lessons) {
+    if (_currentLessonIndex < lessons.length - 1) {
+      _playLesson(_currentLessonIndex + 1, lessons);
     }
   }
 
-  void _playPrevious() {
+  void _playPrevious(List<Lesson> lessons) {
     if (_currentLessonIndex > -1) {
-      _playLesson(_currentLessonIndex - 1);
+      _playLesson(_currentLessonIndex - 1, lessons);
     }
   }
 
@@ -294,24 +248,31 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final String courseId = widget.course.id;
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: DatabaseService().streamCollection(
-        'courses',
-        where: 'id = ?',
-        whereArgs: [courseId],
-      ),
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: DatabaseService().streamDocument('courses', courseId),
       builder: (context, snapshot) {
-        Course displayCourse = widget.course;
-        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-          displayCourse = Course.fromMap(
-            snapshot.data!.first,
-            snapshot.data!.first['id'],
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text("Error")),
+            body: Center(child: Text("Error loading course: ${snapshot.error}")),
           );
+        }
+        Course displayCourse = widget.course;
+        List<Lesson> currentLessons = widget.course.lessons;
+        List<Question> currentQuestions = widget.course.questions.whereType<Question>().toList();
+
+        if (snapshot.hasData && snapshot.data != null) {
+          displayCourse = Course.fromMap(
+            snapshot.data!,
+            snapshot.data!['id'] ?? courseId,
+          );
+          currentLessons = displayCourse.lessons;
+          currentQuestions = displayCourse.questions.whereType<Question>().toList();
         }
 
         String currentVideoUrl = displayCourse.videoUrl;
-        if (_currentLessonIndex >= 0 && _currentLessonIndex < _lessons.length) {
-          currentVideoUrl = _lessons[_currentLessonIndex].videoUrl;
+        if (_currentLessonIndex >= 0 && _currentLessonIndex < currentLessons.length) {
+          currentVideoUrl = currentLessons[_currentLessonIndex].videoUrl;
         }
 
         return Scaffold(
@@ -340,7 +301,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (currentVideoUrl.isNotEmpty)
-                  _buildVideoPlayer(currentVideoUrl),
+                  _buildVideoPlayer(currentVideoUrl, currentLessons),
                 if (_isLoadingContent)
                   const Padding(
                     padding: EdgeInsets.all(32.0),
@@ -349,9 +310,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                 else ...[
                   Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: _buildCourseInfo(displayCourse),
+                    child: _buildCourseInfo(displayCourse, currentLessons),
                   ),
-                  if (_questions.isNotEmpty) _buildQuizButton(displayCourse),
+                  if (currentQuestions.isNotEmpty) _buildQuizButton(displayCourse, currentQuestions),
                   _buildNotesSection(displayCourse.category),
                   const Divider(),
                   _buildReviewsSection(courseId),
@@ -436,7 +397,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     );
   }
 
-  Widget _buildVideoPlayer(String currentVideoUrl) {
+  Widget _buildVideoPlayer(String currentVideoUrl, List<Lesson> currentLessons) {
     if (_errorMessage != null) {
       return Container(
         height: 250,
@@ -464,25 +425,42 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     return Column(
       children: [
         VideoPlayerWidget(
+          key: ValueKey(currentVideoUrl), // Use ValueKey to force rebuild on URL change
           videoUrl: currentVideoUrl,
-          key: ValueKey(currentVideoUrl),
         ),
         const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
-                onPressed: _currentLessonIndex > -1 ? _playPrevious : null,
-                icon: const Icon(Icons.skip_previous),
+                onPressed: _currentLessonIndex > -1 ? () => _playPrevious(currentLessons) : null,
+                icon: const Icon(Icons.skip_previous, size: 32),
                 tooltip: "Previous Lesson",
               ),
+              const SizedBox(width: 16),
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: Theme.of(context).primaryColor,
+                child: IconButton(
+                  onPressed: () => _videoKey.currentState?.togglePlay(),
+                  icon: const Icon(Icons.play_arrow, color: Colors.white, size: 32),
+                  tooltip: "Play/Pause",
+                ),
+              ),
+              const SizedBox(width: 16),
               IconButton(
-                onPressed: _currentLessonIndex < _lessons.length - 1
-                    ? _playNext
+                onPressed: () => _videoKey.currentState?.pause(),
+                icon: const Icon(Icons.stop, size: 32),
+                tooltip: "Stop Video",
+              ),
+              const SizedBox(width: 16),
+              IconButton(
+                onPressed: _currentLessonIndex < currentLessons.length - 1
+                    ? () => _playNext(currentLessons)
                     : null,
-                icon: const Icon(Icons.skip_next),
+                icon: const Icon(Icons.skip_next, size: 32),
                 tooltip: "Next Lesson",
               ),
             ],
@@ -492,7 +470,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     );
   }
 
-  Widget _buildCourseInfo(Course displayCourse) {
+  Widget _buildCourseInfo(Course displayCourse, List<Lesson> lessons) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -508,10 +486,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        if (_lessons.isEmpty)
+        if (lessons.isEmpty)
           const Text("No lessons yet.")
         else
-          ..._lessons.asMap().entries.map((entry) {
+          ...lessons.asMap().entries.map((entry) {
             int idx = entry.key;
             var lesson = entry.value;
             bool isPlaying = _currentLessonIndex == idx;
@@ -540,7 +518,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                   ),
                 ),
                 subtitle: Text(lesson.duration),
-                onTap: () => _playLesson(idx),
+                onTap: () => _playLesson(idx, lessons),
               ),
             );
           }),
@@ -548,7 +526,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     );
   }
 
-  Widget _buildQuizButton(Course displayCourse) {
+  Widget _buildQuizButton(Course displayCourse, List<Question> questions) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: SizedBox(
@@ -556,7 +534,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
         child: ElevatedButton.icon(
           icon: const Icon(Icons.quiz),
           label: Text(
-            "Start Coding Knowledge Check (${_questions.length} Questions)",
+            "Start Coding Knowledge Check (${questions.length} Questions)",
           ),
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.all(16),
@@ -603,7 +581,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
               'course_reviews',
               where: 'course_id = ?',
               whereArgs: [courseId],
-              orderBy: 'created_at DESC',
+              // Removed orderBy to avoid missing composite index error
             ),
             builder: (context, snapshot) {
               if (snapshot.hasError) {

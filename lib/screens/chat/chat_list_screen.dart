@@ -10,53 +10,83 @@ import '../../models/chat_room.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
 import 'chat_screen.dart';
+import '../../widgets/global_app_bar.dart';
+import '../../core/app_theme.dart';
 
-class ChatListScreen extends StatelessWidget {
+class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
+
+  @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> {
+  late Stream<List<ChatRoom>> _chatStream;
+  bool _isInitialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitialized) {
+      final authService = Provider.of<AuthService>(context);
+      final firebaseUser = authService.currentUser;
+      final userModel = authService.userModel;
+      final chatService = ChatService();
+
+      if (firebaseUser != null && userModel != null) {
+        final role = userModel.role;
+        final isStudentRole = role == 'student';
+
+        _chatStream = isStudentRole
+            ? chatService.getStudentChats(firebaseUser.uid)
+            : chatService.getAllChats();
+        _isInitialized = true;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final firebaseUser = authService.currentUser;
     final userModel = authService.userModel;
-    final chatService = ChatService();
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    if (firebaseUser == null || userModel == null) {
-      return const Scaffold(
-        body: Center(child: Text('Please sign in to access chats')),
-      );
+    if (firebaseUser == null || userModel == null || !_isInitialized) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final role = userModel.role;
     final isStudentRole = role == 'student';
 
-    // Students see only their chats; teachers/admins see all
-    final Stream<List<ChatRoom>> chatStream = isStudentRole
-        ? chatService.getStudentChats(firebaseUser.uid)
-        : chatService.getAllChats();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(isStudentRole ? 'My Messages' : 'All Messages'),
+    return AppTheme.backgroundScaffold(
+      isDark: isDark,
+      appBar: GlobalAppBar(
+        title: isStudentRole ? 'My Messages' : 'All Messages',
         centerTitle: true,
-        actions: [
-          if (role == 'admin')
-            IconButton(
-              icon: const Icon(Icons.admin_panel_settings),
-              tooltip: 'Admin view — all chats visible',
-              onPressed: () {},
-            ),
-        ],
+        leading: Navigator.canPop(context)
+            ? const BackButton()
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/',
+                    (route) => false,
+                  );
+                },
+              ),
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: () =>
             _showNewChatDialog(context, firebaseUser.uid, userModel.name, role),
         icon: const Icon(Icons.chat_bubble_outline),
         label: const Text('New Chat'),
       ),
       body: StreamBuilder<List<ChatRoom>>(
-        stream: chatStream,
+        stream: _chatStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

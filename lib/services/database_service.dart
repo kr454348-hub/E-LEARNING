@@ -306,10 +306,13 @@ class DatabaseService {
     // Simple 'where' parsing for basic equality or array-contains
     if (where != null && whereArgs != null && where.contains('?')) {
       String field = where.split(' ')[0];
+      dynamic fieldToQuery = field;
+      if (field == 'id') fieldToQuery = FieldPath.documentId;
+
       if (where.contains('ARRAY-CONTAINS')) {
-        query = query.where(field, arrayContains: whereArgs[0]);
+        query = query.where(fieldToQuery, arrayContains: whereArgs[0]);
       } else {
-        query = query.where(field, isEqualTo: whereArgs[0]);
+        query = query.where(fieldToQuery, isEqualTo: whereArgs[0]);
       }
     }
 
@@ -342,6 +345,89 @@ class DatabaseService {
       data['id'] = doc.id;
       return data;
     });
+  }
+
+  // ─── Specialized Activity Methods ───
+
+  Future<void> toggleFavorite(String userId, String courseId) async {
+    final ref = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
+        .doc(courseId);
+    final doc = await ref.get();
+    if (doc.exists) {
+      await ref.delete();
+    } else {
+      await ref.set({'timestamp': FieldValue.serverTimestamp()});
+    }
+  }
+
+  Stream<bool> isFavorite(String userId, String courseId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
+        .doc(courseId)
+        .snapshots()
+        .map((doc) => doc.exists);
+  }
+
+  Future<void> toggleBookmark(String userId, String lessonId) async {
+    final ref = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('bookmarks')
+        .doc(lessonId);
+    final doc = await ref.get();
+    if (doc.exists) {
+      await ref.delete();
+    } else {
+      await ref.set({'timestamp': FieldValue.serverTimestamp()});
+    }
+  }
+
+  Stream<bool> isBookmarked(String userId, String lessonId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('bookmarks')
+        .doc(lessonId)
+        .snapshots()
+        .map((doc) => doc.exists);
+  }
+
+  Future<void> submitRating(
+    String userId,
+    String courseId,
+    double rating,
+    String comment,
+  ) async {
+    final batch = _firestore.batch();
+
+    // 1. Add/Update the rating doc
+    final ratingRef = _firestore
+        .collection('courses')
+        .doc(courseId)
+        .collection('ratings')
+        .doc(userId);
+    batch.set(ratingRef, {
+      'rating': rating,
+      'comment': comment,
+      'userId': userId,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // 2. Update the course summary (optional but better for performance)
+    // In a real app, this would be a Cloud Function, but here we can do it client-side for simplicity
+    // with a slight risk of race conditions.
+    final courseRef = _firestore.collection('courses').doc(courseId);
+    batch.update(courseRef, {
+      'averageRating': FieldValue.increment(0), // Placeholder for aggregation
+      'ratingCount': FieldValue.increment(1),
+    });
+
+    await batch.commit();
   }
 
   // Batch operations for high-speed background seeding

@@ -4,6 +4,7 @@ import '../../models/live_class.dart';
 import '../../services/live_class_service.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/global_app_bar.dart';
 
 class ScheduleClassScreen extends StatefulWidget {
   const ScheduleClassScreen({super.key});
@@ -80,28 +81,26 @@ class _ScheduleClassScreenState extends State<ScheduleClassScreen> {
         instructorName: _instructorController.text.trim(),
       );
 
-      // Optimistic Update: Initiate write but don't wait for network to pop screen
-      unawaited(
-        LiveClassService().scheduleClass(liveClass).catchError((e) {
-          debugPrint("🔴 [LiveClass] Failed to schedule: $e");
-        }),
-      );
+      await LiveClassService().scheduleClass(liveClass);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Scheduling class...'),
-            duration: Duration(seconds: 2),
+            content: Text('Class scheduled successfully!'),
+            backgroundColor: Colors.green,
           ),
         );
         Navigator.pop(context);
       }
     } catch (e) {
-      debugPrint("🔴 [ScheduleClass] Preparation error: $e");
+      debugPrint("🔴 [ScheduleClass] error: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to schedule: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -111,7 +110,7 @@ class _ScheduleClassScreenState extends State<ScheduleClassScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Schedule Live Class")),
+      appBar: const GlobalAppBar(title: "Schedule Live Class"),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -179,9 +178,12 @@ class _ScheduleClassScreenState extends State<ScheduleClassScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              "Schedule: ${_selectedDate.toString().split('.')[0]}",
-                              style: const TextStyle(fontSize: 16),
+                            Expanded(
+                              child: Text(
+                                "Schedule: ${_selectedDate.toString().split('.')[0]}",
+                                style: const TextStyle(fontSize: 16),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             const Icon(Icons.calendar_today),
                           ],

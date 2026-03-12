@@ -8,7 +8,7 @@
             "flutterMode": "debug",
             "args": [
                 "--web-port",
-                "3000",
+                "8000",
                 "--web-hostname",
                 "localhost",
                 "-d",
@@ -22,7 +22,7 @@
             "flutterMode": "debug",
             "args": [
                 "--web-port",
-                "3000",
+                "8000",
                 "--web-hostname",
                 "localhost",
                 "-d",
@@ -36,7 +36,7 @@
             "flutterMode": "debug",
             "args": [
                 "--web-port",
-                "3000",
+                "8000",
                 "--web-hostname",
                 "localhost",
                 "-d",

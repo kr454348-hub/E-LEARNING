@@ -4,6 +4,7 @@
 // ──────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
+import '../../widgets/global_app_bar.dart';
 import '../../models/course.dart';
 import '../../services/course_content_service.dart';
 
@@ -39,9 +40,7 @@ class _AdminLecturesScreenState extends State<AdminLecturesScreen> {
     if (mounted && course != null) {
       Chapter? chapter;
       try {
-        chapter = course.chapters.firstWhere(
-          (c) => c.id == widget.chapterId,
-        );
+        chapter = course.chapters.firstWhere((c) => c.id == widget.chapterId);
       } catch (_) {
         chapter = null;
       }
@@ -124,39 +123,67 @@ class _AdminLecturesScreenState extends State<AdminLecturesScreen> {
               const SizedBox(height: 20),
               FilledButton.icon(
                 onPressed: () async {
-                  if (titleCtrl.text.trim().isEmpty) {
+                  final title = titleCtrl.text.trim();
+                  if (title.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Title is required')),
                     );
                     return;
                   }
-                  Navigator.pop(ctx);
 
-                  if (lecture == null) {
-                    await _service.addLecture(
-                      widget.courseId,
-                      widget.chapterId,
-                      Lecture(
-                        title: titleCtrl.text.trim(),
-                        videoUrl: videoCtrl.text.trim(),
-                        duration: durationCtrl.text.trim(),
-                        content: contentCtrl.text.trim(),
-                      ),
-                    );
-                  } else {
-                    await _service.updateLecture(
-                      widget.courseId,
-                      widget.chapterId,
-                      lecture.id,
-                      {
-                        'title': titleCtrl.text.trim(),
-                        'video_url': videoCtrl.text.trim(),
-                        'duration': durationCtrl.text.trim(),
-                        'content': contentCtrl.text.trim(),
-                      },
-                    );
+                  // Show loading indicator
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Saving lecture...'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+
+                  try {
+                    if (lecture == null) {
+                      await _service.addLecture(
+                        widget.courseId,
+                        widget.chapterId,
+                        Lecture(
+                          title: title,
+                          videoUrl: videoCtrl.text.trim(),
+                          duration: durationCtrl.text.trim(),
+                          content: contentCtrl.text.trim(),
+                        ),
+                      );
+                    } else {
+                      await _service.updateLecture(
+                        widget.courseId,
+                        widget.chapterId,
+                        lecture.id,
+                        {
+                          'title': title,
+                          'video_url': videoCtrl.text.trim(),
+                          'duration': durationCtrl.text.trim(),
+                          'content': contentCtrl.text.trim(),
+                        },
+                      );
+                    }
+
+                    if (ctx.mounted) {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('Lecture saved successfully!'),
+                        ),
+                      );
+                    }
+                    _loadLectures();
+                  } catch (e) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(
+                          content: Text('Error saving lecture: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
                   }
-                  _loadLectures();
                 },
                 icon: Icon(lecture == null ? Icons.add : Icons.save),
                 label: Text(lecture == null ? 'Add Lecture' : 'Save Changes'),
@@ -222,8 +249,9 @@ class _AdminLecturesScreenState extends State<AdminLecturesScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(widget.chapterTitle), centerTitle: true),
+      appBar: GlobalAppBar(title: widget.chapterTitle, centerTitle: true),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: () => _showLectureForm(),
         icon: const Icon(Icons.add),
         label: const Text('Add Lecture'),
@@ -247,12 +275,29 @@ class _AdminLecturesScreenState extends State<AdminLecturesScreen> {
                 ],
               ),
             )
-          : ListView.builder(
+          : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _lectures.length,
+              onReorder: (oldIndex, newIndex) async {
+                setState(() {
+                  if (oldIndex < newIndex) {
+                    newIndex -= 1;
+                  }
+                  final lecture = _lectures.removeAt(oldIndex);
+                  _lectures.insert(newIndex, lecture);
+                });
+                await _service.reorderLectures(
+                  widget.courseId,
+                  widget.chapterId,
+                  oldIndex,
+                  newIndex,
+                );
+                _loadLectures();
+              },
               itemBuilder: (context, index) {
                 final lecture = _lectures[index];
                 return Card(
+                  key: ValueKey(lecture.id),
                   margin: const EdgeInsets.only(bottom: 12),
                   elevation: 2,
                   child: Padding(
@@ -475,12 +520,22 @@ class _QuizEditorSheetState extends State<_QuizEditorSheet> {
                             padding: const EdgeInsets.only(bottom: 6),
                             child: Row(
                               children: [
-                                Radio<int>(
-                                  value: oi,
-                                  groupValue: draft.correctIndex,
-                                  onChanged: (v) {
-                                    setState(() => draft.correctIndex = v!);
+                                InkWell(
+                                  onTap: () {
+                                    setState(() => draft.correctIndex = oi);
                                   },
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Icon(
+                                      draft.correctIndex == oi
+                                          ? Icons.radio_button_checked
+                                          : Icons.radio_button_unchecked,
+                                      color: draft.correctIndex == oi
+                                          ? Theme.of(context).primaryColor
+                                          : Colors.grey,
+                                    ),
+                                  ),
                                 ),
                                 Expanded(
                                   child: TextField(

@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
+import '../../widgets/global_app_bar.dart';
 import '../../models/course.dart';
 import '../../services/course_content_service.dart';
 import 'admin_lectures_screen.dart';
@@ -63,7 +64,9 @@ class _AdminChaptersScreenState extends State<AdminChaptersScreen> {
           ),
           FilledButton(
             onPressed: () async {
-              if (titleController.text.trim().isEmpty) return;
+              if (titleController.text.trim().isEmpty) {
+                return;
+              }
               Navigator.pop(ctx);
               await _service.addChapter(
                 widget.courseId,
@@ -98,7 +101,9 @@ class _AdminChaptersScreenState extends State<AdminChaptersScreen> {
           ),
           FilledButton(
             onPressed: () async {
-              if (titleController.text.trim().isEmpty) return;
+              if (titleController.text.trim().isEmpty) {
+                return;
+              }
               Navigator.pop(ctx);
               await _service.updateChapter(widget.courseId, chapter.id, {
                 'title': titleController.text.trim(),
@@ -140,8 +145,9 @@ class _AdminChaptersScreenState extends State<AdminChaptersScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(widget.courseTitle), centerTitle: true),
+      appBar: GlobalAppBar(title: widget.courseTitle, centerTitle: true),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: _showAddChapterDialog,
         icon: const Icon(Icons.add),
         label: const Text('Add Chapter'),
@@ -175,8 +181,20 @@ class _AdminChaptersScreenState extends State<AdminChaptersScreen> {
           : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _course!.chapters.length,
-              onReorder: (oldIndex, newIndex) {
-                // TODO: Implement reorder
+              onReorder: (oldIndex, newIndex) async {
+                setState(() {
+                  if (oldIndex < newIndex) {
+                    newIndex -= 1;
+                  }
+                  final chapter = _course!.chapters.removeAt(oldIndex);
+                  _course!.chapters.insert(newIndex, chapter);
+                });
+                await _service.reorderChapters(
+                  widget.courseId,
+                  oldIndex,
+                  newIndex + (oldIndex < newIndex ? 0 : 0), // Adjust if needed
+                );
+                _loadCourse();
               },
               itemBuilder: (context, index) {
                 final chapter = _course!.chapters[index];

@@ -6,6 +6,7 @@ import '../../services/database_service.dart';
 import 'package:provider/provider.dart';
 import '../chat/chat_screen.dart';
 import '../progress_screen.dart';
+import '../../widgets/global_app_bar.dart';
 
 class AdminUserDetailScreen extends StatefulWidget {
   final UserModel user;
@@ -25,7 +26,10 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.user.name);
-    _selectedRole = widget.user.role;
+    final roleLower = widget.user.role.toLowerCase();
+    _selectedRole = ['student', 'admin', 'teacher'].contains(roleLower)
+        ? roleLower
+        : 'student';
   }
 
   @override
@@ -148,7 +152,7 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Edit: ${widget.user.name}')),
+      appBar: GlobalAppBar(title: 'Edit: ${widget.user.name}'),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(

@@ -1,219 +1,333 @@
 // ──────────────────────────────────────────────────────────
 // notes_screen.dart — Study Notes Browser
 // ──────────────────────────────────────────────────────────
-// Displays: Notes from Firestore with content preview
-// Supports: Language-specific notes with formatted content
+// Features: Premium Grid Layout, Category Filtering, PDF Actions
 // ──────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/note.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/note_service.dart';
+import '../core/app_theme.dart';
+import '../widgets/global_app_bar.dart';
 
-class NotesScreen extends StatelessWidget {
+class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
 
   @override
+  State<NotesScreen> createState() => _NotesScreenState();
+}
+
+class _NotesScreenState extends State<NotesScreen> {
+  final NoteService _noteService = NoteService();
+  String _searchQuery = "";
+  String _selectedCategory = "All";
+  late Stream<List<Note>> _notesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _notesStream = _noteService.getNotesStream();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final noteService = NoteService();
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Study Notes')),
-      body: StreamBuilder<List<Note>>(
-        stream: noteService.getNotesStream(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final notes = snapshot.data ?? [];
-          if (notes.isEmpty) {
-            return const Center(child: Text('No notes available yet.'));
-          }
-
-          // Group notes by category
-          final Map<String, List<Note>> groupedNotes = {};
-          for (var note in notes) {
-            final category = note.category.isNotEmpty
-                ? note.category
-                : 'General';
-            if (!groupedNotes.containsKey(category)) {
-              groupedNotes[category] = [];
-            }
-            groupedNotes[category]!.add(note);
-          }
-
-          final sortedCategories = groupedNotes.keys.toList()..sort();
-
-          // Flatten categories and notes into a single list for efficient rendering
-          final List<dynamic> flattenedList = [];
-          for (var category in sortedCategories) {
-            flattenedList.add(category); // String for category header
-            flattenedList.addAll(groupedNotes[category]!); // Note objects
-          }
-
-          return ListView.builder(
-            itemCount: flattenedList.length,
-            padding: const EdgeInsets.all(16),
-            physics: const BouncingScrollPhysics(),
-            itemBuilder: (context, index) {
-              final item = flattenedList[index];
-
-              if (item is String) {
-                // Category Header
-                return Padding(
-                  padding: const EdgeInsets.only(top: 16, bottom: 8),
-                  child: Text(
-                    item,
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.deepPurple,
+    return AppTheme.backgroundScaffold(
+      isDark: isDark,
+      appBar: const GlobalAppBar(title: "Study Notes", transparent: true),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1200),
+          child: Column(
+            children: [
+              // Search Bar
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: TextField(
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                  decoration: InputDecoration(
+                    hintText: "Search notes...",
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: isDark ? Colors.white10 : Colors.grey[100],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
                     ),
                   ),
-                );
-              }
-
-              final note = item as Note;
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              note.title,
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+              ),
+
+              // ─── Content ───
+              Expanded(
+                child: StreamBuilder<List<Note>>(
+                  stream: _notesStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(child: Text("Error: ${snapshot.error}"));
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final allNotes = snapshot.data ?? [];
+                    if (allNotes.isEmpty) {
+                      return _buildEmptyState(isDark);
+                    }
+
+                    // Filter
+                    final filteredNotes = allNotes.where((note) {
+                      final matchesSearch =
+                          note.title.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          note.content.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          );
+                      final matchesCategory =
+                          _selectedCategory == "All" ||
+                          note.category == _selectedCategory;
+                      return matchesSearch && matchesCategory;
+                    }).toList();
+
+                    // Extract Categories
+                    final categories = [
+                      "All",
+                      ...allNotes.map((n) => n.category).toSet().toList()
+                        ..sort(),
+                    ];
+
+                    return Column(
+                      children: [
+                        // Category Chips
+                        if (categories.length > 1)
+                          Container(
+                            height: 60,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
                               ),
+                              itemCount: categories.length,
+                              itemBuilder: (context, index) {
+                                final cat = categories[index];
+                                final isSelected = _selectedCategory == cat;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: FilterChip(
+                                    label: Text(cat),
+                                    selected: isSelected,
+                                    onSelected: (v) =>
+                                        setState(() => _selectedCategory = cat),
+                                    selectedColor: theme.primaryColor
+                                        .withValues(alpha: 0.2),
+                                    checkmarkColor: theme.primaryColor,
+                                    labelStyle: TextStyle(
+                                      color: isSelected
+                                          ? theme.primaryColor
+                                          : (isDark
+                                                ? Colors.white70
+                                                : Colors.black87),
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                    backgroundColor: isDark
+                                        ? Colors.white10
+                                        : Colors.grey[200],
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    side: BorderSide.none,
+                                  ),
+                                );
+                              },
                             ),
                           ),
-                          if (note.authorName.isNotEmpty)
-                            Text(
-                              "by ${note.authorName}",
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        DateFormat.yMMMd().add_jm().format(note.createdAt),
-                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8.0),
-                        child: Divider(height: 1),
-                      ),
-                      Text(
-                        note.content,
-                        style: GoogleFonts.poppins(fontSize: 14),
-                      ),
-                      if (note.pdfUrl != null && note.pdfUrl!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 16.0),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: _buildNoteAction(
-                                  context,
-                                  icon: Icons.visibility,
-                                  label: "View PDF",
-                                  color: Colors.red,
-                                  onTap: () async {
-                                    final uri = Uri.parse(note.pdfUrl!);
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(
-                                        uri,
-                                        mode: LaunchMode.externalApplication,
-                                      );
-                                    }
+
+                        // Grid
+                        Expanded(
+                          child: filteredNotes.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    "No notes found matching your criteria.",
+                                  ),
+                                )
+                              : GridView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 400,
+                                        mainAxisExtent:
+                                            220, // Fixed height cards
+                                        crossAxisSpacing: 16,
+                                        mainAxisSpacing: 16,
+                                      ),
+                                  itemCount: filteredNotes.length,
+                                  itemBuilder: (context, index) {
+                                    return _buildNoteCard(
+                                      filteredNotes[index],
+                                      theme,
+                                      isDark,
+                                    );
                                   },
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildNoteAction(
-                                  context,
-                                  icon: Icons.download,
-                                  label: "Download",
-                                  color: Colors.blue,
-                                  onTap: () => _downloadFile(
-                                    context,
-                                    note.pdfUrl!,
-                                    note.fileName ?? "note.pdf",
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
-                    ],
-                  ),
+                      ],
+                    );
+                  },
                 ),
-              );
-            },
-          );
-        },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildNoteAction(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                style: GoogleFonts.poppins(
-                  color: color,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
+  Widget _buildEmptyState(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.description_outlined,
+            size: 80,
+            color: Colors.grey.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            "No notes available yet.",
+            style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.grey[600],
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoteCard(Note note, ThemeData theme, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.8) : Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: isDark ? 0.05 : 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                overflow: TextOverflow.ellipsis,
+                child: Text(
+                  note.category.isEmpty ? "General" : note.category,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: theme.primaryColor,
+                  ),
+                ),
+              ),
+              Text(
+                DateFormat.MMMd().format(note.createdAt),
+                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            note.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Text(
+              note.content,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                fontSize: 12,
+                height: 1.5,
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          if (note.pdfUrl != null && note.pdfUrl!.isNotEmpty)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.parse(note.pdfUrl!);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(
+                          uri,
+                          mode: LaunchMode.externalApplication,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text("View"),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 0),
+                      minimumSize: const Size(0, 36),
+                      side: BorderSide(
+                        color: theme.primaryColor.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: theme.primaryColor.withValues(alpha: 0.1),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.download_rounded,
+                      size: 16,
+                      color: theme.primaryColor,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _downloadFile(
+                      context,
+                      note.pdfUrl!,
+                      note.fileName ?? "note.pdf",
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -228,23 +342,32 @@ class NotesScreen extends StatelessWidget {
       final savePath = "${dir.path}/$fileName";
       final dio = Dio();
       if (!context.mounted) return;
+
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
+
       await dio.download(url, savePath);
+
       if (!context.mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context); // Close loading
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Downloaded to $savePath"),
           backgroundColor: Colors.green,
+          action: SnackBarAction(
+            label: "Close",
+            onPressed: () {},
+            textColor: Colors.white,
+          ),
         ),
       );
     } catch (e) {
       if (!context.mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context); // Close loading
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
       );

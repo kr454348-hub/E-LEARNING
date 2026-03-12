@@ -38,14 +38,23 @@ class ChatRoom {
         map['participant_roles'] ?? map['participantRoles'] ?? {},
       ),
       lastMessage: map['last_message'] ?? map['lastMessage'] ?? '',
-      lastTimestamp: map['last_timestamp'] != null
-          ? DateTime.parse(map['last_timestamp'])
-          : (map['lastTimestamp'] != null
-                ? DateTime.parse(map['lastTimestamp'])
-                : DateTime.now()),
+      lastTimestamp: _parseDateTime(
+        map['last_timestamp'] ?? map['lastTimestamp'],
+      ),
       type: map['type'] ?? 'direct',
       courseId: map['course_id'] ?? map['courseId'],
     );
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is String) return DateTime.parse(value);
+    if (value is DateTime) return value;
+    // Check for Firestore Timestamp
+    if (value.runtimeType.toString().contains('Timestamp')) {
+      return (value as dynamic).toDate();
+    }
+    return DateTime.now();
   }
 
   Map<String, dynamic> toMap() {

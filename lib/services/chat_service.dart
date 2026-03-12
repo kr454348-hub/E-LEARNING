@@ -21,10 +21,13 @@ class ChatService {
 
       await _firestore.collection('chat_messages').add(messageMap);
 
-      await _firestore.collection('chat_rooms').doc(roomId).update({
+      final roomRef = _firestore.collection('chat_rooms').doc(roomId);
+      await roomRef.set({
         'last_message': message.type == 'image' ? '[Image]' : message.text,
         'last_timestamp': message.timestamp.toIso8601String(),
-      });
+        'participants': FieldValue.arrayUnion([message.senderId]),
+        'type': roomId.contains('_') ? 'direct' : 'course',
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error sending message: $e');
       rethrow;
@@ -36,13 +39,18 @@ class ChatService {
     return _firestore
         .collection('chat_messages')
         .where('room_id', isEqualTo: roomId)
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs
+        .map((snap) {
+          final messages = snap.docs
               .map((doc) => Message.fromMap(doc.data(), doc.id))
-              .toList(),
-        );
+              .toList();
+          // Sort in-memory to avoid Firestore Composite Index requirement
+          messages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          return messages;
+        })
+        .handleError((error) {
+          debugPrint('🔴 [ChatService] getMessages error: $error');
+        });
   }
 
   // ─── Create or Get Private Chat Room ───
@@ -94,26 +102,30 @@ class ChatService {
     return _firestore
         .collection('chat_rooms')
         .where('participants', arrayContains: userId)
-        .orderBy('last_timestamp', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs
+        .map((snap) {
+          final rooms = snap.docs
               .map((doc) => ChatRoom.fromMap(doc.data(), doc.id))
-              .toList(),
-        );
+              .toList();
+          // Sort in-memory to avoid Firestore Composite Index requirement
+          rooms.sort((a, b) => b.lastTimestamp.compareTo(a.lastTimestamp));
+          return rooms;
+        })
+        .handleError((error) {
+          debugPrint('🔴 [ChatService] getStudentChats error: $error');
+        });
   }
 
   // ─── Get All Chats (for Teacher/Admin) ───
   Stream<List<ChatRoom>> getAllChats() {
-    return _firestore
-        .collection('chat_rooms')
-        .orderBy('last_timestamp', descending: true)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((doc) => ChatRoom.fromMap(doc.data(), doc.id))
-              .toList(),
-        );
+    return _firestore.collection('chat_rooms').snapshots().map((snap) {
+      final rooms = snap.docs
+          .map((doc) => ChatRoom.fromMap(doc.data(), doc.id))
+          .toList();
+      // Sort in-memory
+      rooms.sort((a, b) => b.lastTimestamp.compareTo(a.lastTimestamp));
+      return rooms;
+    });
   }
 
   // ─── Get Available Users to Chat With ───

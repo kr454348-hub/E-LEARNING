@@ -18,6 +18,9 @@ class Course {
   final String authorName;
   final String level;
   final DateTime? createdAt;
+  final double price;
+  final double rating;
+  final int ratingCount;
 
   Course({
     this.id = '',
@@ -31,6 +34,9 @@ class Course {
     this.authorId = '',
     this.authorName = '',
     this.level = 'Beginner',
+    this.price = 0.0,
+    this.rating = 0.0,
+    this.ratingCount = 0,
     this.createdAt,
   });
 
@@ -57,9 +63,10 @@ class Course {
     // Parse chapters (new structure)
     dynamic chaptersData = data['chapters'];
     List<Chapter> chapters = [];
-    if (chaptersData is List && chaptersData.isNotEmpty) {
+    if (chaptersData is List) {
       chapters = chaptersData
-          .map((e) => Chapter.fromMap(e as Map<String, dynamic>))
+          .whereType<Map<String, dynamic>>()
+          .map((e) => Chapter.fromMap(e))
           .toList();
     } else if (lessonsData is List && (lessonsData).isNotEmpty) {
       // Legacy: convert flat lessons to a single chapter
@@ -109,6 +116,9 @@ class Course {
       authorId: (data['author_id'] ?? data['authorId'] ?? '').toString(),
       authorName: (data['author_name'] ?? data['authorName'] ?? '').toString(),
       level: data['level'] ?? 'Beginner',
+      price: double.tryParse(data['price']?.toString() ?? '0.0') ?? 0.0,
+      rating: double.tryParse(data['rating']?.toString() ?? '0.0') ?? 0.0,
+      ratingCount: int.tryParse(data['ratingCount']?.toString() ?? '0') ?? 0,
       createdAt: data['created_at'] != null
           ? DateTime.tryParse(data['created_at'].toString())
           : null,
@@ -152,9 +162,13 @@ class Course {
       'category': category,
       'chapters': chapters.map((e) => e.toMap()).toList(),
       'questions': questions.map((e) => e.toMap()).toList(),
+      'has_questions': questions.isNotEmpty, // Automatically derive
       'author_id': authorId,
       'author_name': authorName,
       'level': level,
+      'price': price,
+      'rating': rating,
+      'ratingCount': ratingCount,
       'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
     };
   }
@@ -171,6 +185,9 @@ class Course {
     String? authorId,
     String? authorName,
     String? level,
+    double? price,
+    double? rating,
+    int? ratingCount,
   }) {
     return Course(
       id: id ?? this.id,
@@ -184,6 +201,9 @@ class Course {
       authorId: authorId ?? this.authorId,
       authorName: authorName ?? this.authorName,
       level: level ?? this.level,
+      price: price ?? this.price,
+      rating: rating ?? this.rating,
+      ratingCount: ratingCount ?? this.ratingCount,
       createdAt: createdAt,
     );
   }
@@ -208,12 +228,13 @@ class Chapter {
 
   factory Chapter.fromMap(Map<String, dynamic> data) {
     return Chapter(
-      id: data['id'] ?? '',
-      title: data['title'] ?? '',
-      order: data['order'] ?? 0,
+      id: (data['id'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      order: int.tryParse(data['order']?.toString() ?? '0') ?? 0,
       lectures:
           (data['lectures'] as List<dynamic>?)
-              ?.map((e) => Lecture.fromMap(e as Map<String, dynamic>))
+              ?.whereType<Map<String, dynamic>>()
+              .map((e) => Lecture.fromMap(e))
               .toList() ??
           [],
     );

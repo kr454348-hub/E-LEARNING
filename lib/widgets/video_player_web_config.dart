@@ -9,40 +9,42 @@ void registerWebVideoPlayer(
 ) {
   // ignore: undefined_prefixed_name
   ui_web.platformViewRegistry.registerViewFactory(elementId, (int viewId) {
-    final container = html.DivElement()
-      ..style.width = '100%'
-      ..style.height = '100%'
-      ..style.backgroundColor = 'black';
-
     final isYouTube =
         videoUrl.contains('youtube.com') || videoUrl.contains('youtu.be');
 
-    // Video.js implementation via injected HTML
-    container.innerHtml =
-        """
-      <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
-      <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-      ${isYouTube ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/videojs-youtube/3.0.1/Youtube.min.js"></script>' : ''}
-      
-      <video
-        id="vid-$elementId"
-        class="video-js vjs-default-skin vjs-big-play-centered"
-        controls
-        preload="auto"
-        width="100%"
-        height="100%"
-        poster="${thumbnailUrl ?? ''}"
-        data-setup='{
-          "techOrder": [${isYouTube ? '"youtube"' : '"html5"'}],
-          "sources": [{ "type": "${isYouTube ? 'video/youtube' : 'video/mp4'}", "src": "$videoUrl" }]
-        }'>
-        <p class="vjs-no-js">
-          To view this video please enable JavaScript, and consider upgrading to a
-          web browser that <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
-        </p>
-      </video>
-    """;
+    if (isYouTube) {
+      // Extract video ID and use iframe for reliable playback
+      String videoId = '';
+      if (videoUrl.contains('watch?v=')) {
+        videoId = videoUrl.split('watch?v=')[1].split('&')[0];
+      } else if (videoUrl.contains('youtu.be/')) {
+        videoId = videoUrl.split('youtu.be/')[1].split('?')[0];
+      } else if (videoUrl.contains('embed/')) {
+        videoId = videoUrl.split('embed/')[1].split('?')[0];
+      }
 
-    return container;
+      final iframe = html.IFrameElement()
+        ..src = 'https://www.youtube.com/embed/$videoId?autoplay=1'
+        ..style.border = 'none'
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..allow = 'autoplay; encrypted-media; picture-in-picture'
+        ..setAttribute('allowfullscreen', 'true');
+
+      return iframe;
+    } else {
+      // Direct mp4 implementation using standard HTML5 video tag
+      final videoElement = html.VideoElement()
+        ..src = videoUrl
+        ..style.border = 'none'
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.backgroundColor = 'black'
+        ..controls = true
+        ..autoplay = true
+        ..poster = thumbnailUrl ?? '';
+
+      return videoElement;
+    }
   });
 }

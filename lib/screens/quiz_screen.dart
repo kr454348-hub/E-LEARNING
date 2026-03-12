@@ -1,3 +1,13 @@
+// ──────────────────────────────────────────────────────────
+// quiz_screen.dart — Quiz List & Access
+// ──────────────────────────────────────────────────────────
+// Lists all available quizzes (courses with questions)
+// Features:
+// - Real-time updates via Firestore stream (optimized from polling)
+// - Admin shortcut to edit quiz
+// - Student access to take quiz
+// ──────────────────────────────────────────────────────────
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,30 +16,39 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import 'admin/admin_add_course_screen.dart';
 import 'course_detail_screen.dart';
+import '../widgets/global_app_bar.dart';
+import '../core/app_theme.dart';
 
-class QuizScreen extends StatelessWidget {
+class QuizScreen extends StatefulWidget {
   const QuizScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final db = DatabaseService();
-    final theme = Theme.of(context);
+  State<QuizScreen> createState() => _QuizScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: Text(
-          "Quizzes",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+class _QuizScreenState extends State<QuizScreen> {
+  late Stream<List<Map<String, dynamic>>> _coursesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _coursesStream = DatabaseService().streamCollection('courses');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return AppTheme.backgroundScaffold(
+      isDark: isDark,
+      appBar: const GlobalAppBar(
+        title: "Quizzes",
         centerTitle: true,
+        transparent: true,
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: Stream.periodic(
-          const Duration(seconds: 5),
-        ).asyncMap((_) => db.query('courses')),
+        stream: _coursesStream,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -40,6 +59,7 @@ class QuizScreen extends StatelessWidget {
                 return Course.fromMap(data, data['id']);
               })
               .where((course) {
+                // Check if the source data has questions
                 final dynamic data = snapshot.data!.firstWhere(
                   (d) => d['id'] == course.id,
                 );
@@ -90,14 +110,14 @@ class QuizScreen extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF252540) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.8) : Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: isDark ? 0.05 : 0.5)),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: isDark ? 0.05 : 0.08),
-            spreadRadius: 2,
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),

@@ -142,6 +142,36 @@ class CourseContentService {
     }
   }
 
+  Future<void> reorderChapters(
+    String courseId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    try {
+      final course = await getCourse(courseId);
+      if (course == null) return;
+      final chapters = List<Chapter>.from(course.chapters);
+
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      final Chapter item = chapters.removeAt(oldIndex);
+      chapters.insert(newIndex, item);
+
+      // Update orders
+      for (int i = 0; i < chapters.length; i++) {
+        chapters[i] = chapters[i].copyWith(order: i);
+      }
+
+      await _firestore.collection('courses').doc(courseId).update({
+        'chapters': chapters.map((c) => c.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint('Error reordering chapters: $e');
+      rethrow;
+    }
+  }
+
   // ─── Lecture CRUD (embedded in Chapter) ───
 
   Future<void> addLecture(
@@ -240,6 +270,42 @@ class CourseContentService {
       });
     } catch (e) {
       debugPrint('Error deleting lecture: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> reorderLectures(
+    String courseId,
+    String chapterId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    try {
+      final course = await getCourse(courseId);
+      if (course == null) return;
+      final chapters = course.chapters.map((ch) {
+        if (ch.id == chapterId) {
+          final lectures = List<Lecture>.from(ch.lectures);
+          if (oldIndex < newIndex) {
+            newIndex -= 1;
+          }
+          final Lecture item = lectures.removeAt(oldIndex);
+          lectures.insert(newIndex, item);
+
+          // Update orders
+          for (int i = 0; i < lectures.length; i++) {
+            lectures[i] = lectures[i].copyWith(order: i);
+          }
+          return ch.copyWith(lectures: lectures);
+        }
+        return ch;
+      }).toList();
+
+      await _firestore.collection('courses').doc(courseId).update({
+        'chapters': chapters.map((c) => c.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint('Error reordering lectures: $e');
       rethrow;
     }
   }
